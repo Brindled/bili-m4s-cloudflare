@@ -1,0 +1,144 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#2563eb">
+<title>Bili M4S 音频下载器</title>
+<meta name="description" content="在浏览器中获取可公开访问的 Bilibili DASH 音频流。">
+<style>
+:root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f7fb}
+*{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}
+.card{width:min(100%,660px);background:#fff;border:1px solid #e4eaf2;border-radius:24px;padding:32px;box-shadow:0 18px 60px #1c355015}
+.brand{display:flex;align-items:center;gap:12px;font-weight:750;font-size:18px}.logo{width:42px;height:42px;border-radius:13px;background:#2563eb;color:white;display:grid;place-items:center;font-size:21px}
+h1{font-size:clamp(27px,5vw,36px);margin:28px 0 8px;letter-spacing:-1px}.sub{color:#667085;line-height:1.65;margin:0 0 26px}
+label{font-size:14px;font-weight:650;display:block;margin:0 0 9px}
+input{width:100%;border:1px solid #d8e0eb;border-radius:12px;padding:15px 14px;font-size:15px;outline:none}
+input:focus{border-color:#2563eb;box-shadow:0 0 0 3px #2563eb18}
+button,.download{border:0;border-radius:12px;background:#2563eb;color:#fff;padding:15px 18px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;display:flex;justify-content:center;align-items:center;width:100%;margin-top:14px}
+button:disabled{opacity:.55;cursor:wait}.note{font-size:12px;color:#7a8494;line-height:1.7;margin-top:18px}
+.status{margin-top:18px;padding:13px 14px;border-radius:12px;background:#f3f6fb;color:#485467;font-size:14px;line-height:1.6;display:none}
+.status.error{display:block;background:#fff1f0;color:#b42318}.status.ok{display:block;background:#ecfdf3;color:#067647}
+.result{display:none;margin-top:20px;border:1px solid #e2e8f0;border-radius:15px;padding:16px}
+.result h2{font-size:16px;margin:0 0 8px;line-height:1.5}.meta{font-size:13px;color:#667085;line-height:1.7;overflow-wrap:anywhere}
+.secondary{display:block;text-align:center;margin-top:12px;color:#2563eb;font-size:13px;text-decoration:none}
+.foot{border-top:1px solid #edf0f5;margin-top:25px;padding-top:18px;color:#8a94a4;font-size:12px;text-align:center}
+@media(max-width:520px){.card{padding:24px 19px;border-radius:19px}}
+</style>
+</head>
+<body>
+<main class="card">
+  <div class="brand"><div class="logo">♫</div><span>Bili M4S Downloader</span></div>
+  <h1>提取视频音频</h1>
+  <p class="sub">粘贴 Bilibili 视频链接，尝试在当前浏览器中获取 DASH 原始音频流（M4S），不进行 MP3 转码。</p>
+  <form id="form">
+    <label for="videoUrl">B站视频地址或 BV 号</label>
+    <input id="videoUrl" name="videoUrl" autocomplete="url" placeholder="https://www.bilibili.com/video/BV..." required>
+    <button id="submit" type="submit">获取音频</button>
+  </form>
+  <div id="status" class="status" role="status" aria-live="polite"></div>
+  <section id="result" class="result">
+    <h2 id="videoTitle"></h2>
+    <div class="meta" id="audioMeta"></div>
+    <a id="download" class="download" href="#" rel="noopener">下载音频 M4S</a>
+    <a id="openAudio" class="secondary" href="#" target="_blank" rel="noopener">在新标签页打开音频地址</a>
+  </section>
+  <p class="note">
+    本版本由你的浏览器直接访问 B 站公开接口，不经过 Cloudflare Functions，因此不会使用 Cloudflare 出口 IP 请求 B 站。
+    如果浏览器提示跨域（CORS）或网络错误，表示 B 站未允许当前网页域名直接读取接口；纯前端方案无法自行解除该限制。
+    仅用于下载你拥有版权或已获授权、且无需绕过登录、付费或其他访问限制即可访问的内容。本工具不读取 Cookie、不模拟登录，也不绕过访问控制。
+  </p>
+  <div class="foot">Cloudflare Pages 静态网页 · 浏览器直连 Bilibili · 保留 M4S 原始格式</div>
+</main>
+<script>
+const form=document.querySelector("#form");
+const input=document.querySelector("#videoUrl");
+const submit=document.querySelector("#submit");
+const statusBox=document.querySelector("#status");
+const result=document.querySelector("#result");
+
+function showStatus(message,type=""){statusBox.textContent=message;statusBox.className="status "+type;}
+function getBvid(value){
+  const match=String(value).trim().match(/BV[0-9A-Za-z]{10}/i);
+  if(!match) throw new Error("请输入有效的 B 站视频链接或 BV 号。");
+  return match[0];
+}
+function safeName(value){
+  return String(value||"bilibili-audio").replace(/[\\/:*?"<>|]/g,"_").replace(/[. ]+$/g,"").slice(0,100)||"bilibili-audio";
+}
+async function getJson(url,stage){
+  let response;
+  try{
+    response=await fetch(url,{method:"GET",mode:"cors",credentials:"omit",cache:"no-store"});
+  }catch(error){
+    throw new Error(`${stage}无法由当前网页读取。可能是 B 站跨域（CORS）限制或网络拦截；浏览器直连方案在此环境下不可用。`);
+  }
+  if(!response.ok) throw new Error(`${stage}返回 HTTP ${response.status}。`);
+  let json;
+  try{json=await response.json();}catch{throw new Error(`${stage}返回内容无法解析。`);}
+  if(json.code!==0) throw new Error(`${stage}返回 B 站错误：${json.message||json.msg||json.code}。`);
+  return json.data;
+}
+form.addEventListener("submit",async event=>{
+  event.preventDefault();
+  result.style.display="none";
+  submit.disabled=true;
+  submit.textContent="正在获取音轨…";
+  showStatus("正在由当前浏览器请求 B 站视频信息…");
+  try{
+    const bvid=getBvid(input.value);
+    const referer=`https://www.bilibili.com/video/${bvid}/`;
+    const view=await getJson(
+      `https://api.bilibili.com/x/web-interface/view?bvid=${encodeURIComponent(bvid)}`,
+      "视频信息接口"
+    );
+    const pageCid=view.cid || view.pages?.[0]?.cid;
+    if(!pageCid) throw new Error("没有从视频信息中取得 cid。");
+
+    showStatus("视频信息已取得，正在请求 DASH 音频流…");
+    const params=new URLSearchParams({
+      bvid,
+      cid:String(pageCid),
+      qn:"0",
+      fnver:"0",
+      fnval:"4048",
+      fourk:"1",
+      platform:"pc"
+    });
+    const play=await getJson(`https://api.bilibili.com/x/player/playurl?${params}`,"音频播放地址接口");
+    const tracks=play?.dash?.audio;
+    if(!Array.isArray(tracks)||tracks.length===0){
+      throw new Error("B 站没有返回 DASH 音频轨道。该视频当前可能只提供普通 MP4、需要登录，或受到播放权限限制。");
+    }
+    const audio=[...tracks].sort((a,b)=>(b.bandwidth||0)-(a.bandwidth||0))[0];
+    const audioUrl=audio.baseUrl||audio.base_url;
+    if(!audioUrl) throw new Error("DASH 音频轨道缺少可用地址。");
+    const parsed=new URL(audioUrl);
+    if(parsed.protocol!=="https:"||!/(^|\.)bilivideo\.(com|cn)$/i.test(parsed.hostname)){
+      throw new Error("B 站返回了不受支持的音频地址。");
+    }
+
+    const filename=safeName(view.title)+".m4s";
+    const download=document.querySelector("#download");
+    const openAudio=document.querySelector("#openAudio");
+    download.href=audioUrl;
+    download.setAttribute("download",filename);
+    download.setAttribute("referrerpolicy","no-referrer");
+    openAudio.href=audioUrl;
+    openAudio.setAttribute("referrerpolicy","no-referrer");
+
+    document.querySelector("#videoTitle").textContent=view.title||bvid;
+    document.querySelector("#audioMeta").textContent=
+      `格式：M4S · 编码：${audio.codecs||"音频编码由 B 站提供"} · 音轨 ID：${audio.id??"默认"} · 带宽：${audio.bandwidth?Math.round(audio.bandwidth/1000)+" kbps":"未知"}`;
+    result.style.display="block";
+    showStatus("已取得 DASH 音频地址。点击下载；若浏览器打开播放而非保存，请右键音频链接选择“链接另存为”。","ok");
+  }catch(error){
+    showStatus(error.message||"请求失败，请稍后重试。","error");
+  }finally{
+    submit.disabled=false;
+    submit.textContent="获取音频";
+  }
+});
+</script>
+</body>
+</html>
