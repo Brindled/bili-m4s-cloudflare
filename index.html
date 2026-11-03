@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="theme-color" content="#2563eb">
+  <title>Bili M4S 音频下载器</title>
+  <meta name="description" content="获取你拥有版权或已获授权的 Bilibili 视频音频流文件。">
+  <style>
+    :root{font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color:#172033;background:#f4f7fb}
+    *{box-sizing:border-box}body{margin:0;min-height:100vh;display:grid;place-items:center;padding:24px}
+    .card{width:min(100%,620px);background:#fff;border:1px solid #e4eaf2;border-radius:24px;padding:32px;box-shadow:0 18px 60px #1c355015}
+    .brand{display:flex;align-items:center;gap:12px;font-weight:750;font-size:18px}.logo{width:42px;height:42px;border-radius:13px;background:#2563eb;color:white;display:grid;place-items:center;font-size:21px}
+    h1{font-size:clamp(27px,5vw,36px);margin:28px 0 8px;letter-spacing:-1px}.sub{color:#667085;line-height:1.65;margin:0 0 26px}
+    label{font-size:14px;font-weight:650;display:block;margin:0 0 9px}
+    input{width:100%;border:1px solid #d8e0eb;border-radius:12px;padding:15px 14px;font-size:15px;outline:none}
+    input:focus{border-color:#2563eb;box-shadow:0 0 0 3px #2563eb18}
+    button,.download{border:0;border-radius:12px;background:#2563eb;color:#fff;padding:15px 18px;font-size:15px;font-weight:700;cursor:pointer;text-decoration:none;display:flex;justify-content:center;align-items:center;width:100%;margin-top:14px}
+    button:disabled{opacity:.55;cursor:wait}.note{font-size:12px;color:#7a8494;line-height:1.6;margin-top:18px}
+    .status{margin-top:18px;padding:13px 14px;border-radius:12px;background:#f3f6fb;color:#485467;font-size:14px;line-height:1.55;display:none}
+    .status.error{display:block;background:#fff1f0;color:#b42318}.status.ok{display:block;background:#ecfdf3;color:#067647}
+    .result{display:none;margin-top:20px;border:1px solid #e2e8f0;border-radius:15px;padding:16px}
+    .result h2{font-size:16px;margin:0 0 8px;line-height:1.5}.meta{font-size:13px;color:#667085}
+    .download{margin-top:14px}.foot{border-top:1px solid #edf0f5;margin-top:25px;padding-top:18px;color:#8a94a4;font-size:12px;text-align:center}
+    @media(max-width:520px){.card{padding:24px 19px;border-radius:19px}}
+  </style>
+</head>
+<body>
+<main class="card">
+  <div class="brand"><div class="logo">♫</div><span>Bili M4S Downloader</span></div>
+  <h1>提取视频音频</h1>
+  <p class="sub">粘贴 Bilibili 视频链接，获取可访问视频的原始 DASH 音频流（M4S）。不进行 MP3 转码。</p>
+  <form id="form">
+    <label for="videoUrl">B站视频地址或 BV 号</label>
+    <input id="videoUrl" name="videoUrl" autocomplete="url" placeholder="https://www.bilibili.com/video/BV..." required>
+    <button id="submit" type="submit">获取音频</button>
+  </form>
+  <div id="status" class="status" role="status" aria-live="polite"></div>
+  <section id="result" class="result">
+    <h2 id="videoTitle"></h2>
+    <div class="meta" id="audioMeta"></div>
+    <a id="download" class="download" href="#" download>下载音频 M4S</a>
+  </section>
+  <p class="note">仅用于下载你拥有版权或已获授权、且无需绕过登录、付费或其他访问限制即可访问的内容。部分视频可能需要登录、存在地区限制，或不提供可用的 DASH 音轨；本工具不会读取 Cookie 或绕过这些限制。</p>
+  <div class="foot">Cloudflare Pages + Functions · 音频保持原始格式</div>
+</main>
+<script>
+const form=document.querySelector("#form"), input=document.querySelector("#videoUrl");
+const submit=document.querySelector("#submit"), statusBox=document.querySelector("#status");
+const result=document.querySelector("#result");
+function showStatus(message,type=""){statusBox.textContent=message;statusBox.className="status "+type;}
+form.addEventListener("submit",async e=>{
+  e.preventDefault(); result.style.display="none"; statusBox.style.display="block";
+  submit.disabled=true; submit.textContent="正在获取音轨…"; showStatus("正在查询视频信息和可用音频流…");
+  try{
+    const response=await fetch("/api/resolve",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({url:input.value.trim()})});
+    const data=await response.json();
+    if(!response.ok) throw new Error(data.error||"获取失败，请稍后重试。");
+    document.querySelector("#videoTitle").textContent=data.title;
+    document.querySelector("#audioMeta").textContent=`音频格式：M4S · 音轨标识：${data.audioId??"默认音轨"} · 原始音频流`;
+    document.querySelector("#download").href=data.downloadUrl;
+    document.querySelector("#download").setAttribute("download",data.filename);
+    result.style.display="block"; showStatus("音轨已找到，可以下载。","ok");
+  }catch(err){showStatus(err.message||"网络错误，请稍后重试。","error");}
+  finally{submit.disabled=false;submit.textContent="获取音频";}
+});
+</script>
+</body>
+</html>
